@@ -1,2 +1,3 @@
 all:
-	zig build run
+	zig build 
+	./zig-out/bin/zrun

@@ -11,16 +11,17 @@ const Ctx = struct {
     font_spacing: f32 = 0,
     font_size: f32 = 40, // default font size
     font_path: [*c]const u8 = "/usr/share/fonts/TTF/IosevkaNerdFontMono-Medium.ttf", // default font path
-    prompt: [*c]const u8 = "search:", // default prompt
+    prompt: [*c]const u8 = "search: ", // default prompt
     prompt_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0xFF, .b = 0xFF },
     text_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0xFF, .b = 0xFF },
-    bg_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0xFF, .b = 0xFF },
+    bg_color: rl.Color = .{ .a = 0xFF, .r = 0x00, .g = 0x00, .b = 0x00 },
+    selected_text_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0x00, .b = 0xFF },
     font_h: f32 = 0,
     font_w: f32 = 0,
     rows: usize = 0,
     cols: usize = 0,
-    screen_w: i32 = 400, // default width
-    screen_h: i32 = 600, // default height
+    screen_w: i32 = 600, // default width
+    screen_h: i32 = 400, // default height
     entry_list: List = .{},
     input: std.ArrayList(u8) = .empty,
     allocator: std.mem.Allocator,
@@ -104,34 +105,38 @@ fn update_screen() !void {
 
     rl.DrawTextEx(ctx.font, prompt_z, position, ctx.font_size, 0, ctx.prompt_color);
 
-    const count = ctx.rows - 1;
-
     var filtered = try ctx.entry_list.filter(i_slice);
+
+    // sanity oob check
+    if (ctx.selected >= filtered.list.items.len) ctx.selected = 0;
+    if (ctx.selected < 0) ctx.selected = @intCast(filtered.list.items.len - 1);
+
     defer filtered.destroy();
 
-    for (0..count) |i| {
-        if (i >= filtered.list.items.len) break; // oob check
-        const e: Entry = filtered.get(i);
+    const window_size: i32 = @intCast(ctx.rows - 1);
+    const window_n: i32 = @divTrunc(ctx.selected, window_size);
+
+    for (0.., filtered.list.items) |i, e| {
+        // todo: improve this, there are a lot of wasted iterations
+        if (i < window_n * window_size) continue;
+        if (i >= (window_n + 1) * window_size) continue;
         position.x = ctx.margin_l;
         position.y += ctx.font_h;
 
-        const txt = try ctx.allocator.dupeZ(u8, e.text);
+        const txt = try ctx.allocator.dupeZ(u8, e.text); // store this in the entry
         defer ctx.allocator.free(txt);
-        rl.DrawTextEx(ctx.font, txt, position, ctx.font_size, 0, ctx.prompt_color);
+        if (i == ctx.selected) {
+            rl.DrawTextEx(ctx.font, txt, position, ctx.font_size, 0, ctx.selected_text_color);
+        } else {
+            rl.DrawTextEx(ctx.font, txt, position, ctx.font_size, 0, ctx.text_color);
+        }
     }
-}
-
-fn _fini(init: std.process.Init, allocator: std.mem.Allocator) !void {
-    _ = init;
-    _ = allocator;
-    ctx.entry_list.destroy();
-    ctx.input.deinit(ctx.allocator);
 }
 
 fn _init(init: std.process.Init, allocator: std.mem.Allocator) !void {
     ctx = .{ .allocator = allocator };
 
-    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE); // maybe floating
+    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE); // maybe floating
     rl.InitWindow(ctx.screen_w, ctx.screen_h, "zrun");
 
     ctx.font = rl.LoadFontEx(ctx.font_path, @intFromFloat(ctx.font_size), null, 0);
@@ -156,6 +161,13 @@ fn _init(init: std.process.Init, allocator: std.mem.Allocator) !void {
     }
 }
 
+fn _fini(init: std.process.Init, allocator: std.mem.Allocator) !void {
+    _ = init;
+    _ = allocator;
+    ctx.entry_list.destroy();
+    ctx.input.deinit(ctx.allocator);
+}
+
 fn update_globals() void {
     ctx.screen_w = rl.GetScreenWidth();
     ctx.screen_h = rl.GetScreenHeight();
@@ -176,19 +188,36 @@ fn update_globals() void {
 
 fn select_and_run() !void {
     print("HAVE TO RUN!\n", .{});
+    return error.NoError; // idk how to quit
 }
 
 fn capture_input() !void {
     if (rl.IsKeyPressed(rl.KEY_BACKSPACE)) {
         _ = ctx.input.pop();
     }
+
     if (rl.IsKeyPressed(rl.KEY_ENTER)) {
         try select_and_run();
         ctx.input.clearRetainingCapacity();
     }
+
+    if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_U) or
+        rl.IsKeyPressed(rl.KEY_DOWN))
+    {
+        ctx.selected += 1;
+    }
+
+    if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_I) or
+        rl.IsKeyPressed(rl.KEY_UP))
+    {
+        ctx.selected -= 1;
+    }
+
     for (0..128) |i| {
         if (rl.IsKeyPressed(rl.KEY_BACKSPACE)) continue;
         if (rl.IsKeyPressed(rl.KEY_ENTER)) continue;
+        if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_I)) continue;
+        if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_U)) continue;
 
         if (rl.IsKeyPressed(@intCast(i))) {
             if (std.ascii.isAlphanumeric(@intCast(i))) {
@@ -212,7 +241,7 @@ fn loop() !void {
         }
         rl.BeginDrawing();
         if (ctx.cols > 0 and ctx.rows > 0) {
-            rl.ClearBackground(rl.BLACK);
+            rl.ClearBackground(ctx.bg_color);
             try capture_input();
             try update_screen();
         } else {
@@ -224,7 +253,13 @@ fn loop() !void {
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
-    _init(init, allocator) catch try _fini(init, allocator);
-    loop() catch try _fini(init, allocator);
+    _init(init, allocator) catch {
+        try _fini(init, allocator);
+        return;
+    };
+    loop() catch {
+        try _fini(init, allocator);
+        return;
+    };
     try _fini(init, allocator);
 }
