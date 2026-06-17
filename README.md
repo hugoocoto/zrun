@@ -18,3 +18,7 @@ Something in between dmenu, rofi, wofi and tofi.
 3. Run the executable.
 
 You can do all of this using make: `make`.
+
+> ![NOTE]
+> Edit the source to change things like the font. All the customizable things
+> are at the beginning.

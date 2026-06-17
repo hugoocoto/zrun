@@ -257,7 +257,7 @@ fn _init(init: std.process.Init) !void {
         .io = init.io,
     };
 
-    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE); // maybe floating
+    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE); 
     rl.InitWindow(ctx.screen_w, ctx.screen_h, "zrun");
 
     ctx.font = rl.LoadFontEx(ctx.font_path, @intFromFloat(ctx.font_size), null, 0);
