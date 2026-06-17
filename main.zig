@@ -5,17 +5,30 @@ const rl = @cImport({
     @cInclude("raylib.h");
 });
 
+const C: struct {
+    background: rl.Color = .{ .a = 0xFF, .r = 0x1d, .g = 0x20, .b = 0x21 },
+    foreground: rl.Color = .{ .a = 0xFF, .r = 0xd4, .g = 0xbe, .b = 0x98 },
+    black: rl.Color = .{ .a = 0xFF, .r = 0x92, .g = 0x83, .b = 0x74 },
+    red: rl.Color = .{ .a = 0xFF, .r = 0xea, .g = 0x69, .b = 0x62 },
+    green: rl.Color = .{ .a = 0xFF, .r = 0xa9, .g = 0xb6, .b = 0x65 },
+    yellow: rl.Color = .{ .a = 0xFF, .r = 0xe7, .g = 0x8a, .b = 0x4e },
+    blue: rl.Color = .{ .a = 0xFF, .r = 0x7d, .g = 0xae, .b = 0xa3 },
+    magenta: rl.Color = .{ .a = 0xFF, .r = 0xd3, .g = 0x86, .b = 0x9b },
+    cyan: rl.Color = .{ .a = 0xFF, .r = 0x89, .g = 0xb4, .b = 0x82 },
+    white: rl.Color = .{ .a = 0xFF, .r = 0xdd, .g = 0xc7, .b = 0xa1 },
+} = .{};
+
 // autocalculated things
 const Ctx = struct {
     font: rl.Font = .{},
     font_spacing: f32 = 0,
-    font_size: f32 = 40, // default font size
+    font_size: f32 = 36, // default font size
     font_path: [*c]const u8 = "/usr/share/fonts/TTF/IosevkaNerdFontMono-Medium.ttf", // default font path
     prompt: [*c]const u8 = "search: ", // default prompt
-    prompt_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0xFF, .b = 0xFF },
-    text_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0xFF, .b = 0xFF },
-    bg_color: rl.Color = .{ .a = 0xFF, .r = 0x00, .g = 0x00, .b = 0x00 },
-    selected_text_color: rl.Color = .{ .a = 0xFF, .r = 0xFF, .g = 0x00, .b = 0xFF },
+    prompt_color: rl.Color = C.foreground,
+    text_color: rl.Color = C.foreground,
+    bg_color: rl.Color = C.background,
+    selected_text_color: rl.Color = C.magenta,
     font_h: f32 = 0,
     font_w: f32 = 0,
     rows: usize = 0,
@@ -51,7 +64,7 @@ const Entry = struct {
                     0 < e.efec_name.?[j] and e.efec_name.?[j] < 128 and
                     std.ascii.toLower(ch) == std.ascii.toLower(e.efec_name.?[j]))
                 {
-                    i = j+1;
+                    i = j + 1;
                     break;
                 }
             } else {
@@ -94,8 +107,6 @@ fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
     var r = file.reader(ctx.io, &buf);
     var values: Entry = .{};
 
-    print("file: {s}\n", .{entry.name});
-
     while (try r.interface.takeDelimiter('\n')) |line| {
         const content = std.mem.trim(u8, line, &std.ascii.whitespace);
 
@@ -103,28 +114,24 @@ fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
             if (values.efec_name) |_| continue;
             values.efec_name = try ctx.allocator.dupe(u8, value);
             values.real_name = try ctx.allocator.dupeZ(u8, value);
-            print("Name: {s}\n", .{values.efec_name.?});
             continue;
         }
 
         if (extractValue(content, "Exec=")) |value| {
             if (values.exec) |_| continue;
             values.exec = try ctx.allocator.dupe(u8, value);
-            print("Exec: {s}\n", .{values.exec.?});
             continue;
         }
 
         if (extractValue(content, "Icon=")) |value| {
             if (values.icon) |_| continue;
             values.icon = try ctx.allocator.dupe(u8, value);
-            print("Icon: {s}\n", .{values.icon.?});
             continue;
         }
 
         if (extractValue(content, "Terminal=")) |value| {
             if (values.terminal) |_| continue;
             values.terminal = try ctx.allocator.dupe(u8, value);
-            print("Terminal: {s}\n", .{values.terminal.?});
             continue;
         }
 
@@ -143,7 +150,7 @@ fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
     if (values.efec_name) |_| {
         return values;
     } else {
-        print("Entry {s} has no name\n", .{entry.name});
+        print("[debug] Entry {s} has no name\n", .{entry.name});
         values.destroy();
         return null;
     }
@@ -157,10 +164,8 @@ const List = struct {
         return l.list.items[i];
     }
 
-    pub fn append(l: *List, e: Entry) void {
-        l.list.append(ctx.allocator, e) catch |err| {
-            print("Error {}\n", .{err});
-        };
+    pub fn append(l: *List, e: Entry) !void {
+        try l.list.append(ctx.allocator, e);
     }
 
     pub fn destroy(l: *List) void {
@@ -175,7 +180,7 @@ const List = struct {
         for (0..l.list.items.len) |i| {
             var e: Entry = l.get(i);
             if (e.match(text)) {
-                lnew.append(try e.dup());
+                try lnew.append(try e.dup());
             }
         }
         return lnew;
@@ -194,7 +199,7 @@ fn parse_desktop_dir(l: *List, path: []const u8) !void {
         const file = try dir.openFile(ctx.io, entry.name, .{});
         defer file.close(ctx.io);
         if (try parse_entry(entry, file)) |e| {
-            l.append(e);
+            try l.append(e);
         }
     }
 }
@@ -257,7 +262,7 @@ fn _init(init: std.process.Init) !void {
 
     ctx.font = rl.LoadFontEx(ctx.font_path, @intFromFloat(ctx.font_size), null, 0);
     if (!rl.IsFontValid(ctx.font)) {
-        print("Font {s} is not valid\n", .{ctx.font_path});
+        print("[debug] Font {s} is not valid\n", .{ctx.font_path});
         rl.CloseWindow();
         return;
     }
@@ -269,11 +274,11 @@ fn _init(init: std.process.Init) !void {
 
     const entries = ctx.entry_list.list.items.len;
     if (entries <= 0) {
-        print("There is no .desktop files\n", .{});
+        print("[debug] No .desktop files\n", .{});
         rl.CloseWindow();
         return;
     } else {
-        print("Found {} .desktop files\n", .{entries});
+        print("[debug] Found {} .desktop files\n", .{entries});
     }
 }
 
@@ -297,14 +302,14 @@ fn update_globals() void {
     ctx.rows = @intFromFloat(@as(f32, @floatFromInt(ctx.screen_h)) / ctx.font_h);
     ctx.cols = @intFromFloat(@as(f32, @floatFromInt(ctx.screen_w)) / ctx.font_w);
 
-    print("New size: {}, {}\n", .{ ctx.screen_h, ctx.screen_w });
-    print("cols: {} rows: {}\n", .{ ctx.cols, ctx.rows });
+    print("[debug] New size: {}, {}\n", .{ ctx.screen_h, ctx.screen_w });
+    print("[debug] Cols: {} Rows: {}\n", .{ ctx.cols, ctx.rows });
 }
 
 fn select_and_run() !void {
     const e: Entry = ctx.selected_entry;
-    std.debug.print("> Selected: {s}\n", .{e.efec_name.?});
-    std.debug.print(">   run: {s}\n", .{e.exec.?});
+    print("[debug] Selected: {s}\n", .{e.efec_name.?});
+    print("[debug]      run: {s}\n", .{e.exec.?});
 
     _ = try std.process.spawn(ctx.io, .{
         .argv = &.{ "sh", "-c", e.exec.? },
