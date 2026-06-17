@@ -11,4 +11,10 @@ Search and run your apps
 
 Something in between dmenu, rofi, wofi and tofi.
 
+# Installation
 
+1. Install raylib 6.0.
+2. Use the `zig build` command.
+3. Run the executable.
+
+You can do all of this using make: `make`.
