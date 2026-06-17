@@ -27,17 +27,127 @@ const Ctx = struct {
     allocator: std.mem.Allocator,
     margin_l: f32 = 50,
     selected: i32 = 0,
+    selected_entry: Entry = .{},
+    io: std.Io,
+    ignorecase: bool = true,
 };
 
 var ctx: Ctx = undefined;
 
 const Entry = struct {
-    text: []const u8,
+    efec_name: ?[]const u8 = null,
+    real_name: ?[:0]const u8 = null,
+    exec: ?[]const u8 = null,
+    icon: ?[]const u8 = null,
+    terminal: ?[]const u8 = null,
 
     pub fn match(e: Entry, text: []const u8) bool {
-        return std.mem.startsWith(u8, e.text, text);
+        var i: usize = 0;
+        if (e.efec_name.?.len < text.len) return false;
+        for (text) |ch| {
+            for (i..e.efec_name.?.len) |j| {
+                if (e.efec_name.?[j] == ch or ctx.ignorecase and
+                    0 < ch and ch < 128 and
+                    0 < e.efec_name.?[j] and e.efec_name.?[j] < 128 and
+                    std.ascii.toLower(ch) == std.ascii.toLower(e.efec_name.?[j]))
+                {
+                    i = j+1;
+                    break;
+                }
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn dup(e: Entry) !Entry {
+        var e2: Entry = e;
+        if (e.efec_name) |v| e2.efec_name = try ctx.allocator.dupe(u8, v);
+        if (e.real_name) |v| e2.real_name = try ctx.allocator.dupeZ(u8, v);
+        if (e.exec) |v| e2.exec = try ctx.allocator.dupe(u8, v);
+        if (e.icon) |v| e2.icon = try ctx.allocator.dupe(u8, v);
+        if (e.terminal) |v| e2.terminal = try ctx.allocator.dupe(u8, v);
+        return e2;
+    }
+
+    pub fn destroy(e: Entry) void {
+        if (e.efec_name) |v| ctx.allocator.free(v);
+        if (e.real_name) |v| ctx.allocator.free(v);
+        if (e.exec) |v| ctx.allocator.free(v);
+        if (e.icon) |v| ctx.allocator.free(v);
+        if (e.terminal) |v| ctx.allocator.free(v);
     }
 };
+
+inline fn extractValue(content: []const u8, comptime prefix: []const u8) ?[]const u8 {
+    if (std.mem.startsWith(u8, content, prefix)) {
+        if (content.len > prefix.len) {
+            return std.mem.trim(u8, content[prefix.len..], &std.ascii.whitespace);
+        }
+    }
+    return null;
+}
+
+fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
+    var buf: [4096]u8 = undefined;
+    var r = file.reader(ctx.io, &buf);
+    var values: Entry = .{};
+
+    print("file: {s}\n", .{entry.name});
+
+    while (try r.interface.takeDelimiter('\n')) |line| {
+        const content = std.mem.trim(u8, line, &std.ascii.whitespace);
+
+        if (extractValue(content, "Name=")) |value| {
+            if (values.efec_name) |_| continue;
+            values.efec_name = try ctx.allocator.dupe(u8, value);
+            values.real_name = try ctx.allocator.dupeZ(u8, value);
+            print("Name: {s}\n", .{values.efec_name.?});
+            continue;
+        }
+
+        if (extractValue(content, "Exec=")) |value| {
+            if (values.exec) |_| continue;
+            values.exec = try ctx.allocator.dupe(u8, value);
+            print("Exec: {s}\n", .{values.exec.?});
+            continue;
+        }
+
+        if (extractValue(content, "Icon=")) |value| {
+            if (values.icon) |_| continue;
+            values.icon = try ctx.allocator.dupe(u8, value);
+            print("Icon: {s}\n", .{values.icon.?});
+            continue;
+        }
+
+        if (extractValue(content, "Terminal=")) |value| {
+            if (values.terminal) |_| continue;
+            values.terminal = try ctx.allocator.dupe(u8, value);
+            print("Terminal: {s}\n", .{values.terminal.?});
+            continue;
+        }
+
+        if (extractValue(content, "NoDisplay=")) |value| {
+            if (std.mem.eql(u8, value, "true")) {
+                values.destroy();
+                return null;
+            }
+            if (std.mem.eql(u8, value, "false")) {} else {
+                return error.ValueIsNeitherTrueNorFalse;
+            }
+            continue;
+        }
+    }
+
+    if (values.efec_name) |_| {
+        return values;
+    } else {
+        print("Entry {s} has no name\n", .{entry.name});
+        values.destroy();
+        return null;
+    }
+}
 
 const List = struct {
     list: std.ArrayList(Entry) = .empty,
@@ -55,7 +165,7 @@ const List = struct {
 
     pub fn destroy(l: *List) void {
         for (l.list.items) |e| {
-            ctx.allocator.free(e.text);
+            e.destroy();
         }
         l.list.deinit(ctx.allocator);
     }
@@ -65,26 +175,27 @@ const List = struct {
         for (0..l.list.items.len) |i| {
             var e: Entry = l.get(i);
             if (e.match(text)) {
-                e.text = try ctx.allocator.dupe(u8, e.text);
-                lnew.append(e);
+                lnew.append(try e.dup());
             }
         }
         return lnew;
     }
 };
 
-fn parse_desktop_dir(init: std.process.Init, l: *List, path: []const u8) !void {
-    const io = init.io;
+fn parse_desktop_dir(l: *List, path: []const u8) !void {
     const cwd = std.Io.Dir.cwd();
 
-    var dir = try cwd.openDir(io, path, .{ .iterate = true });
-    defer dir.close(io);
+    var dir = try cwd.openDir(ctx.io, path, .{ .iterate = true });
+    defer dir.close(ctx.io);
 
     var iter = dir.iterateAssumeFirstIteration();
 
-    while (try iter.next(io)) |entry| {
-        std.debug.print("file: {s}\n", .{entry.name});
-        l.append(.{ .text = try ctx.allocator.dupe(u8, entry.name) });
+    while (try iter.next(ctx.io)) |entry| {
+        const file = try dir.openFile(ctx.io, entry.name, .{});
+        defer file.close(ctx.io);
+        if (try parse_entry(entry, file)) |e| {
+            l.append(e);
+        }
     }
 }
 
@@ -106,12 +217,16 @@ fn update_screen() !void {
     rl.DrawTextEx(ctx.font, prompt_z, position, ctx.font_size, 0, ctx.prompt_color);
 
     var filtered = try ctx.entry_list.filter(i_slice);
+    defer filtered.destroy();
+
+    if (filtered.list.items.len <= 0) return;
 
     // sanity oob check
     if (ctx.selected >= filtered.list.items.len) ctx.selected = 0;
     if (ctx.selected < 0) ctx.selected = @intCast(filtered.list.items.len - 1);
 
-    defer filtered.destroy();
+    ctx.selected_entry.destroy();
+    ctx.selected_entry = try filtered.get(@intCast(ctx.selected)).dup();
 
     const window_size: i32 = @intCast(ctx.rows - 1);
     const window_n: i32 = @divTrunc(ctx.selected, window_size);
@@ -123,18 +238,19 @@ fn update_screen() !void {
         position.x = ctx.margin_l;
         position.y += ctx.font_h;
 
-        const txt = try ctx.allocator.dupeZ(u8, e.text); // store this in the entry
-        defer ctx.allocator.free(txt);
         if (i == ctx.selected) {
-            rl.DrawTextEx(ctx.font, txt, position, ctx.font_size, 0, ctx.selected_text_color);
+            rl.DrawTextEx(ctx.font, e.real_name.?, position, ctx.font_size, 0, ctx.selected_text_color);
         } else {
-            rl.DrawTextEx(ctx.font, txt, position, ctx.font_size, 0, ctx.text_color);
+            rl.DrawTextEx(ctx.font, e.real_name.?, position, ctx.font_size, 0, ctx.text_color);
         }
     }
 }
 
-fn _init(init: std.process.Init, allocator: std.mem.Allocator) !void {
-    ctx = .{ .allocator = allocator };
+fn _init(init: std.process.Init) !void {
+    ctx = .{
+        .allocator = init.gpa,
+        .io = init.io,
+    };
 
     // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE); // maybe floating
     rl.InitWindow(ctx.screen_w, ctx.screen_h, "zrun");
@@ -148,8 +264,8 @@ fn _init(init: std.process.Init, allocator: std.mem.Allocator) !void {
 
     update_globals();
 
-    parse_desktop_dir(init, &ctx.entry_list, "/home/hugo/.local/share/applications/") catch {};
-    parse_desktop_dir(init, &ctx.entry_list, "/usr/share/applications/") catch {};
+    parse_desktop_dir(&ctx.entry_list, "/home/hugo/.local/share/applications/") catch {};
+    parse_desktop_dir(&ctx.entry_list, "/usr/share/applications/") catch {};
 
     const entries = ctx.entry_list.list.items.len;
     if (entries <= 0) {
@@ -161,10 +277,9 @@ fn _init(init: std.process.Init, allocator: std.mem.Allocator) !void {
     }
 }
 
-fn _fini(init: std.process.Init, allocator: std.mem.Allocator) !void {
-    _ = init;
-    _ = allocator;
+fn _fini() !void {
     ctx.entry_list.destroy();
+    ctx.selected_entry.destroy();
     ctx.input.deinit(ctx.allocator);
 }
 
@@ -187,49 +302,50 @@ fn update_globals() void {
 }
 
 fn select_and_run() !void {
-    print("HAVE TO RUN!\n", .{});
-    return error.NoError; // idk how to quit
+    const e: Entry = ctx.selected_entry;
+    std.debug.print("> Selected: {s}\n", .{e.efec_name.?});
+    std.debug.print(">   run: {s}\n", .{e.exec.?});
+
+    _ = try std.process.spawn(ctx.io, .{
+        .argv = &.{ "sh", "-c", e.exec.? },
+    });
+
+    return error.NoError;
 }
 
 fn capture_input() !void {
-    if (rl.IsKeyPressed(rl.KEY_BACKSPACE)) {
-        _ = ctx.input.pop();
-    }
+    while (true) {
+        const k = rl.GetKeyPressed();
+        if (k == 0) break;
 
-    if (rl.IsKeyPressed(rl.KEY_ENTER)) {
-        try select_and_run();
-        ctx.input.clearRetainingCapacity();
-    }
+        if (k == rl.KEY_BACKSPACE) {
+            _ = ctx.input.pop();
+        }
 
-    if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_U) or
-        rl.IsKeyPressed(rl.KEY_DOWN))
-    {
-        ctx.selected += 1;
-    }
+        if (k == rl.KEY_ENTER) {
+            try select_and_run();
+            ctx.input.clearRetainingCapacity();
+        }
 
-    if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_I) or
-        rl.IsKeyPressed(rl.KEY_UP))
-    {
-        ctx.selected -= 1;
-    }
+        if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and k == rl.KEY_J or k == rl.KEY_DOWN) {
+            ctx.selected += 1;
+            continue;
+        }
 
-    for (0..128) |i| {
-        if (rl.IsKeyPressed(rl.KEY_BACKSPACE)) continue;
-        if (rl.IsKeyPressed(rl.KEY_ENTER)) continue;
-        if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_I)) continue;
-        if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and rl.IsKeyPressed(rl.KEY_U)) continue;
+        if ((rl.IsKeyDown(rl.KEY_LEFT_CONTROL) or rl.IsKeyDown(rl.KEY_RIGHT_CONTROL)) and k == rl.KEY_K or k == rl.KEY_UP) {
+            ctx.selected -= 1;
+            continue;
+        }
 
-        if (rl.IsKeyPressed(@intCast(i))) {
-            if (std.ascii.isAlphanumeric(@intCast(i))) {
-                print("key {} pressed\n", .{i});
-                if (rl.IsKeyDown(rl.KEY_LEFT_SHIFT) and rl.IsKeyDown(rl.KEY_RIGHT_SHIFT)) {
-                    try ctx.input.append(ctx.allocator, std.ascii.toUpper(@intCast(i)));
-                } else {
-                    try ctx.input.append(ctx.allocator, std.ascii.toLower(@intCast(i)));
-                }
+        if (0 < k and k < 128 and std.ascii.isAlphanumeric(@intCast(k))) {
+            print("[Debug] key {} pressed\n", .{k});
+            if (!ctx.ignorecase and (rl.IsKeyDown(rl.KEY_LEFT_SHIFT) or rl.IsKeyDown(rl.KEY_RIGHT_SHIFT))) {
+                try ctx.input.append(ctx.allocator, std.ascii.toUpper(@intCast(k)));
             } else {
-                print("Non printable key {} pressed\n", .{i});
+                try ctx.input.append(ctx.allocator, std.ascii.toLower(@intCast(k)));
             }
+        } else {
+            print("[Debug] Non printable key {} pressed\n", .{k});
         }
     }
 }
@@ -252,14 +368,13 @@ fn loop() !void {
 }
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    _init(init, allocator) catch {
-        try _fini(init, allocator);
+    _init(init) catch {
+        try _fini();
         return;
     };
     loop() catch {
-        try _fini(init, allocator);
+        try _fini();
         return;
     };
-    try _fini(init, allocator);
+    try _fini();
 }
