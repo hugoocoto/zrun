@@ -39,6 +39,7 @@ const Ctx = struct {
     input: std.ArrayList(u8) = .empty,
     allocator: std.mem.Allocator,
     margin_l: f32 = 50,
+    margin: f32 = 50,
     selected: i32 = 0,
     selected_entry: Entry = .{},
     io: std.Io,
@@ -205,7 +206,7 @@ fn parse_desktop_dir(l: *List, path: []const u8) !void {
 }
 
 fn update_screen() !void {
-    var position: rl.Vector2 = .{ .x = 0, .y = 0 };
+    var position: rl.Vector2 = .{ .x = ctx.margin, .y = ctx.margin };
 
     // this chunk is just for concat two cstr
     const p_slice = std.mem.span(ctx.prompt);
@@ -236,11 +237,11 @@ fn update_screen() !void {
     const window_size: i32 = @intCast(ctx.rows - 1);
     const window_n: i32 = @divTrunc(ctx.selected, window_size);
 
+    position.x = ctx.margin + ctx.margin_l;
     for (0.., filtered.list.items) |i, e| {
         // todo: improve this, there are a lot of wasted iterations
         if (i < window_n * window_size) continue;
         if (i >= (window_n + 1) * window_size) continue;
-        position.x = ctx.margin_l;
         position.y += ctx.font_h;
 
         if (i == ctx.selected) {
@@ -257,7 +258,7 @@ fn _init(init: std.process.Init) !void {
         .io = init.io,
     };
 
-    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE); 
+    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
     rl.InitWindow(ctx.screen_w, ctx.screen_h, "zrun");
 
     ctx.font = rl.LoadFontEx(ctx.font_path, @intFromFloat(ctx.font_size), null, 0);
@@ -299,8 +300,8 @@ fn update_globals() void {
     std.debug.assert(ctx.font_w > 0);
     std.debug.assert(ctx.font_h > 0);
 
-    ctx.rows = @intFromFloat(@as(f32, @floatFromInt(ctx.screen_h)) / ctx.font_h);
-    ctx.cols = @intFromFloat(@as(f32, @floatFromInt(ctx.screen_w)) / ctx.font_w);
+    ctx.rows = @intFromFloat((@as(f32, @floatFromInt(ctx.screen_h)) - 2 * ctx.margin) / ctx.font_h);
+    ctx.cols = @intFromFloat((@as(f32, @floatFromInt(ctx.screen_w)) - 2 * ctx.margin) / ctx.font_w);
 
     print("[debug] New size: {}, {}\n", .{ ctx.screen_h, ctx.screen_w });
     print("[debug] Cols: {} Rows: {}\n", .{ ctx.cols, ctx.rows });
