@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=zrun
+
+Exec=/home/hugo/code/zrun/zig-out/bin/zrun
+NoDisplay=true
+Terminal=false
+Icon=/home/hugo/code/zrun/zrun_icon.png
+Type=Application
