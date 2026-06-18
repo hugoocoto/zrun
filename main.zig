@@ -54,8 +54,9 @@ const Entry = struct {
     exec: ?[]const u8 = null,
     icon: ?[]const u8 = null,
     terminal: ?[]const u8 = null,
+    gap: i32 = 0,
 
-    pub fn match(e: Entry, text: []const u8) bool {
+    pub fn match(e: *Entry, text: []const u8) bool {
         var i: usize = 0;
         if (e.efec_name.?.len < text.len) return false;
         for (text) |ch| {
@@ -68,6 +69,7 @@ const Entry = struct {
                     i = j + 1;
                     break;
                 }
+                e.gap += 1;
             } else {
                 return false;
             }
@@ -93,6 +95,10 @@ const Entry = struct {
         if (e.terminal) |v| ctx.allocator.free(v);
     }
 };
+
+fn entry_less_than(_: void, e1: Entry, e2: Entry) bool {
+    return e1.gap < e2.gap;
+}
 
 inline fn extractValue(content: []const u8, comptime prefix: []const u8) ?[]const u8 {
     if (std.mem.startsWith(u8, content, prefix)) {
@@ -184,6 +190,7 @@ const List = struct {
                 try lnew.append(try e.dup());
             }
         }
+        std.mem.sort(Entry, lnew.list.items, {}, comptime entry_less_than);
         return lnew;
     }
 };
