@@ -58,6 +58,7 @@ const Entry = struct {
 
     pub fn match(e: *Entry, text: []const u8) bool {
         var i: usize = 0;
+        var gap: i32 = 0;
         if (e.efec_name.?.len < text.len) return false;
         for (text) |ch| {
             for (i..e.efec_name.?.len) |j| {
@@ -67,9 +68,15 @@ const Entry = struct {
                     std.ascii.toLower(ch) == std.ascii.toLower(e.efec_name.?[j]))
                 {
                     i = j + 1;
+                    if (gap <= 0) {
+                        gap -= 1;
+                    } else {
+                        gap = 0;
+                    }
+                    e.gap += gap;
                     break;
                 }
-                e.gap += 1;
+                gap += 2;
             } else {
                 return false;
             }

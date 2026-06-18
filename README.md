@@ -5,6 +5,7 @@ Search and run your apps
 ![image](image1.png)
 
 - Some kind of fuzzy finding
+- Sort by matching gap heuristic (magic)
 - Works
 - Written in Zig. I had never touched zig before
 - Uses Raylib!
