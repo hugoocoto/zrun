@@ -8,6 +8,7 @@ Search and run your apps
 - Sort by matching gap heuristic (magic)
 - Works
 - Written in Zig. I had never touched zig before
+- With logo artwork
 - Uses Raylib!
 
 Something in between dmenu, rofi, wofi and tofi.
