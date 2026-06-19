@@ -284,8 +284,8 @@ fn _init(init: std.process.Init) !void {
 
     update_globals();
 
-    parse_desktop_dir(&ctx.entry_list, "/home/hugo/.local/share/applications/") catch {};
     parse_desktop_dir(&ctx.entry_list, "/usr/share/applications/") catch {};
+    parse_desktop_dir(&ctx.entry_list, "/home/hugo/.local/share/applications/") catch {};
 
     const entries = ctx.entry_list.list.items.len;
     if (entries <= 0) {
