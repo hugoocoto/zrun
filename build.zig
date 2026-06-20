@@ -20,6 +20,12 @@ pub fn build(b: *std.Build) void {
     // Link against your library (without 'lib' prefix and extension)
     exe.root_module.linkSystemLibrary("raylib", .{
         .needed = true,
+        .preferred_link_mode = .static,
+    });
+
+    exe.root_module.linkSystemLibrary("x11", .{
+        .needed = true,
+        .preferred_link_mode = .static,
     });
 
     // If your library depends on libc

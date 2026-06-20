@@ -1,5 +1,24 @@
 const std = @import("std");
-const print = std.debug.print;
+
+fn get_time() f64 {
+    var tp: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.REALTIME, &tp);
+    return @as(f64, @floatFromInt(tp.sec)) +
+        @as(f64, @floatFromInt(tp.nsec)) /
+            @as(f64, 1e9);
+}
+
+var start_time: f64 = undefined;
+
+inline fn debug(what: []const u8, args: anytype) void {
+    std.debug.print("debug: [{d:.6}s] ", .{get_time() - start_time});
+    std.debug.print(what, args);
+}
+
+inline fn info(what: []const u8, args: anytype) void {
+    std.debug.print("info: ", .{});
+    std.debug.print(what, args);
+}
 
 const rl = @cImport({
     @cInclude("raylib.h");
@@ -23,7 +42,7 @@ const Ctx = struct {
     font: rl.Font = .{},
     font_spacing: f32 = 0,
     font_size: f32 = 36, // default font size
-    font_path: [*c]const u8 = "/usr/share/fonts/TTF/IosevkaNerdFontMono-Medium.ttf", // default font path
+    font_path: [*c]const u8 = "/usr/share/fonts/TTF/IosevkaNerdFontMono-Regular.ttf", // default font path
     prompt: [*c]const u8 = "search: ", // default prompt
     prompt_color: rl.Color = C.foreground,
     text_color: rl.Color = C.foreground,
@@ -164,7 +183,7 @@ fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
     if (values.efec_name) |_| {
         return values;
     } else {
-        print("[debug] Entry {s} has no name\n", .{entry.name});
+        info("Entry {s} has no name\n", .{entry.name});
         values.destroy();
         return null;
     }
@@ -267,34 +286,46 @@ fn update_screen() !void {
 }
 
 fn _init(init: std.process.Init) !void {
+    debug("start init\n", .{});
     ctx = .{
         .allocator = init.gpa,
         .io = init.io,
     };
 
-    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
+    debug("start raylib init\n", .{});
+    debug("start set trace log level\n", .{});
+    rl.SetTraceLogLevel(rl.LOG_ERROR);
+    debug("end set trace log level\n", .{});
+    debug("start rl init window\n", .{});
     rl.InitWindow(ctx.screen_w, ctx.screen_h, "zrun");
+    debug("end rl init window\n", .{});
 
+    debug("start rl load font\n", .{});
     ctx.font = rl.LoadFontEx(ctx.font_path, @intFromFloat(ctx.font_size), null, 0);
     if (!rl.IsFontValid(ctx.font)) {
-        print("[debug] Font {s} is not valid\n", .{ctx.font_path});
+        info("Font {s} is not valid\n", .{ctx.font_path});
         rl.CloseWindow();
         return;
     }
+    debug("end rl load font\n", .{});
+    debug("end raylib init\n", .{});
 
     update_globals();
 
+    debug("start parse_desktop_dir\n", .{});
     parse_desktop_dir(&ctx.entry_list, "/usr/share/applications/") catch {};
     parse_desktop_dir(&ctx.entry_list, "/home/hugo/.local/share/applications/") catch {};
+    debug("end parse_desktop_dir\n", .{});
 
     const entries = ctx.entry_list.list.items.len;
     if (entries <= 0) {
-        print("[debug] No .desktop files\n", .{});
+        info("No .desktop files\n", .{});
         rl.CloseWindow();
         return;
     } else {
-        print("[debug] Found {} .desktop files\n", .{entries});
+        info("Found {} .desktop files\n", .{entries});
     }
+    debug("end init\n", .{});
 }
 
 fn _fini() !void {
@@ -317,14 +348,14 @@ fn update_globals() void {
     ctx.rows = @intFromFloat((@as(f32, @floatFromInt(ctx.screen_h)) - 2 * ctx.margin) / ctx.font_h);
     ctx.cols = @intFromFloat((@as(f32, @floatFromInt(ctx.screen_w)) - 2 * ctx.margin) / ctx.font_w);
 
-    print("[debug] New size: {}, {}\n", .{ ctx.screen_h, ctx.screen_w });
-    print("[debug] Cols: {} Rows: {}\n", .{ ctx.cols, ctx.rows });
+    info("New size: {}, {}\n", .{ ctx.screen_h, ctx.screen_w });
+    info("Cols: {} Rows: {}\n", .{ ctx.cols, ctx.rows });
 }
 
 fn select_and_run() !void {
     const e: Entry = ctx.selected_entry;
-    print("[debug] Selected: {s}\n", .{e.efec_name.?});
-    print("[debug]      run: {s}\n", .{e.exec.?});
+    info("Selected: {s}\n", .{e.efec_name.?});
+    info("     run: {s}\n", .{e.exec.?});
 
     _ = try std.process.spawn(ctx.io, .{
         .argv = &.{ "sh", "-c", e.exec.? },
@@ -358,14 +389,14 @@ fn capture_input() !void {
         }
 
         if (0 < k and k < 128 and std.ascii.isAlphanumeric(@intCast(k))) {
-            print("[Debug] key {} pressed\n", .{k});
+            info("key {} pressed\n", .{k});
             if (!ctx.ignorecase and (rl.IsKeyDown(rl.KEY_LEFT_SHIFT) or rl.IsKeyDown(rl.KEY_RIGHT_SHIFT))) {
                 try ctx.input.append(ctx.allocator, std.ascii.toUpper(@intCast(k)));
             } else {
                 try ctx.input.append(ctx.allocator, std.ascii.toLower(@intCast(k)));
             }
         } else {
-            print("[Debug] Non printable key {} pressed\n", .{k});
+            info("Non printable key {} pressed\n", .{k});
         }
     }
 }
@@ -388,6 +419,7 @@ fn loop() !void {
 }
 
 pub fn main(init: std.process.Init) !void {
+    start_time = get_time();
     _init(init) catch {
         try _fini();
         return;
