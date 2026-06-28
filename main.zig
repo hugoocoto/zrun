@@ -135,6 +135,15 @@ inline fn extractValue(content: []const u8, comptime prefix: []const u8) ?[]cons
     return null;
 }
 
+pub fn exec_trim_from_args(ch: *[]u8, target: []const u8) void {
+    if (std.mem.indexOf(u8, ch.*, target)) |index| {
+        const remaining_start = index + target.len;
+        const new_len = ch.*.len - target.len;
+        std.mem.copyForwards(u8, ch.*[index..new_len], ch.*[remaining_start..]);
+        ch.* = ch.*[0..new_len];
+    }
+}
+
 fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
     var buf: [4096]u8 = undefined;
     var r = file.reader(ctx.io, &buf);
@@ -152,7 +161,22 @@ fn parse_entry(entry: std.Io.Dir.Entry, file: std.Io.File) !?Entry {
 
         if (extractValue(content, "Exec=")) |value| {
             if (values.exec) |_| continue;
-            values.exec = try ctx.allocator.dupe(u8, value);
+            var mut_value = @constCast(value);
+            // Totally unnecesary args - fuck them
+            exec_trim_from_args(&mut_value, " %f");
+            exec_trim_from_args(&mut_value, " %F");
+            exec_trim_from_args(&mut_value, " %u");
+            exec_trim_from_args(&mut_value, " %U");
+            exec_trim_from_args(&mut_value, " %d");
+            exec_trim_from_args(&mut_value, " %D");
+            exec_trim_from_args(&mut_value, " %n");
+            exec_trim_from_args(&mut_value, " %N");
+            exec_trim_from_args(&mut_value, " %i");
+            exec_trim_from_args(&mut_value, " %c");
+            exec_trim_from_args(&mut_value, " %k");
+            exec_trim_from_args(&mut_value, " %v");
+            exec_trim_from_args(&mut_value, " %m");
+            values.exec = try ctx.allocator.dupe(u8, mut_value);
             continue;
         }
 
