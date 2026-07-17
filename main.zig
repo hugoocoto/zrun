@@ -1,5 +1,9 @@
 const std = @import("std");
 
+const rl = @cImport({
+    @cInclude("raylib.h");
+});
+
 fn get_time() f64 {
     var tp: std.os.linux.timespec = undefined;
     _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.REALTIME, &tp);
@@ -19,10 +23,6 @@ inline fn info(what: []const u8, args: anytype) void {
     std.debug.print("info: ", .{});
     std.debug.print(what, args);
 }
-
-const rl = @cImport({
-    @cInclude("raylib.h");
-});
 
 const C: struct {
     background: rl.Color = .{ .a = 0xFF, .r = 0x1d, .g = 0x20, .b = 0x21 },
